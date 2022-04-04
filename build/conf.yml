@@ -1,0 +1,16 @@
+nodes:
+  n1:
+    kv:
+      port: 8080
+    raft:
+      port: 9000
+  n2:
+    kv:
+      port: 8081
+    raft:
+      port: 9001
+  n3:
+    kv:
+      port: 8081
+    raft:
+      port: 9001
