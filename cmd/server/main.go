@@ -16,6 +16,7 @@ func say_hello(rw http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+
 	// id := flag.Int("id", 0, "Id of the node")
 	// port := flag.String("p", "8001", "Port to listen on")
 	port := ":8001"
@@ -31,6 +32,7 @@ func main() {
 	// }
 	// flag.Parse()
 	// fmt.Printf("Running Node: %d at port: %s", *id, *port)
+
 	http.HandleFunc("/hello", say_hello)
 	// go startBadger()
 
@@ -39,6 +41,47 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
+
+	add := func(w http.ResponseWriter, r *http.Request) {
+		keys := r.URL.Query()["key"]
+		vals := r.URL.Query()["val"]
+
+		key := keys[0]
+		val := vals[0]
+
+		err := db.Update(func(txn *badger.Txn) error {
+			err := txn.Set([]byte(key), []byte(val))
+			return err
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	get := func(w http.ResponseWriter, r *http.Request) {
+		keys := r.URL.Query()["key"]
+		key := keys[0]
+		
+		err := db.View(func(txn *badger.Txn) error {
+			item, err := txn.Get([]byte(key))
+			
+			
+			item.Value(func(val []byte) error {
+				w.Write(val)
+				return nil
+			})
+
+
+			
+			return err
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	http.HandleFunc("/add", add)
+	http.HandleFunc("/get", get)
 
 	log.Fatal(http.ListenAndServe(port, nil))
 }
