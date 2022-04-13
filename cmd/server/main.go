@@ -4,12 +4,19 @@ import (
 	"flag"
 	"fmt"
 	"github.com/dgraph-io/badger/v3"
+	"github.com/hashicorp/raft"
 	"go.uber.org/zap"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 )
+
+// The full server encapsulated in a struct
+type server struct {
+	raft *raft.Raft
+	fsm  *raftFSM
+}
 
 func main() {
 	logger, err := zap.NewProduction()

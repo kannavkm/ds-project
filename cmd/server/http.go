@@ -5,6 +5,8 @@ import (
 	"net"
 )
 
+// http server for client requests
+
 type httpServer struct {
 	address net.Addr
 	logger  *zap.Logger
