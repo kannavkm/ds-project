@@ -54,20 +54,17 @@ func (f *raftFSM) Apply(log *raft.Log) interface{} {
 		f.logger.Fatal("Failed unmarshalling Log entry, this is a bug")
 	}
 	switch e.opType {
-	case "SET", "UPD":
+	case set, upd:
 		err := f.db.Update(func(txn *badger.Txn) error {
 			// TODO handle conflict here
 			err := txn.Set(e.Key(), e.Value())
-			for err.Error() == badger.ErrConflict.Error() {
-				err = txn.Set(e.Key(), e.Value())
-			}
 			return err
 		})
 		if err != nil {
 			return err
 		}
 		// should read only operations go through raft?
-	case "DEL":
+	case del:
 		err := f.db.Update(func(txn *badger.Txn) error {
 			err := txn.Delete(e.Key())
 			return err
@@ -93,8 +90,8 @@ func (f *raftFSM) Apply(log *raft.Log) interface{} {
 // Apply and Snapshot are always called from the same thread, but Apply will
 // be called concurrently with FSMSnapshot.Persist. This means the FSM should
 // be implemented to allow for concurrent updates while a snapshot is happening.
-func (*raftFSM) Snapshot() (raft.FSMSnapshot, error) {
-	return nil, nil
+func (f *raftFSM) Snapshot() (raft.FSMSnapshot, error) {
+	return &raftFSMSnapshot{}, nil
 }
 
 // Restore is used to restore an FSM from a snapshot. It is not called
@@ -104,13 +101,18 @@ func (*raftFSM) Restore(io.ReadCloser) error {
 	return nil
 }
 
-// FSMSnapshot is returned by an FSM in response to a Snapshot It must be safe to invoke FSMSnapshot methods with concurrent calls to Apply.
+// FSMSnapshot is returned by an FSM in response to a Snapshot
+// It must be safe to invoke FSMSnapshot methods with concurrent calls to Apply.
 type raftFSMSnapshot struct {
 }
 
 // Persist should dump all necessary state to the WriteCloser 'sink',
 // and call sink.Close() when finished or call sink.Cancel() on error.
 func (*raftFSMSnapshot) Persist(sink raft.SnapshotSink) error {
+	// Persist and Restore functions are related
+	// raft persists the snapshot periodically
+	// in case of complete failure the state is restored from disk
+	// from the last time we Persisted, we don't need that since badger handles the persistence for us
 	return nil
 }
 
