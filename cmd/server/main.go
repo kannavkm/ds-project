@@ -3,22 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/dgraph-io/badger/v3"
-	"github.com/hashicorp/raft"
 	"go.uber.org/zap"
 	"log"
-	"net/http"
 	"os"
 	"strings"
 )
-
-// The full server encapsulated in a struct
-type server struct {
-	logger *zap.Logger
-
-	raft *raft.Raft
-	fsm  *raftFSM
-}
 
 func main() {
 	logger, err := zap.NewProduction()
@@ -43,25 +32,25 @@ func main() {
 	}
 	logger.Info(fmt.Sprintf("Running Node: %d at port: %s", *id, *port))
 
-	db, err := badger.Open(badger.DefaultOptions("/tmp/badger"))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer func(db *badger.DB) {
-		err := db.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-	}(db)
-
-	sayHello := func(rw http.ResponseWriter, r *http.Request) {
-		_, err := rw.Write([]byte("<h1>Hello</h1>"))
-		if err != nil {
-			return
-		}
-	}
-
-	http.HandleFunc("/", sayHello)
-
-	log.Fatal(http.ListenAndServe(":"+*port, nil))
+	//db, err := badger.Open(badger.DefaultOptions("/tmp/badger"))
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//defer func(db *badger.DB) {
+	//	err := db.Close()
+	//	if err != nil {
+	//		log.Fatal(err)
+	//	}
+	//}(db)
+	//
+	//sayHello := func(rw http.ResponseWriter, r *http.Request) {
+	//	_, err := rw.Write([]byte("<h1>Hello</h1>"))
+	//	if err != nil {
+	//		return
+	//	}
+	//}
+	//
+	//http.HandleFunc("/", sayHello)
+	//
+	//log.Fatal(http.ListenAndServe(":"+*port, nil))
 }
