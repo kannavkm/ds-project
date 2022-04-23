@@ -15,17 +15,15 @@ type raftFSM struct {
 	logger *zap.Logger
 }
 
-type op string
-
 const (
-	get op = "GET"
-	set op = "SET"
-	upd op = "UPD"
-	del op = "DEL"
+	get string = "GET"
+	set string = "SET"
+	upd string = "UPD"
+	del string = "DEL"
 )
 
 type event struct {
-	opType op
+	opType string
 	key    uint64
 	value  uint64
 }

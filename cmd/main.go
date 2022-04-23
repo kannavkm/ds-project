@@ -7,6 +7,12 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
+)
+
+const (
+	retainSnapshotCount = 2
+	raftTimeout         = 10 * time.Second
 )
 
 func main() {
@@ -31,26 +37,4 @@ func main() {
 		cluster[i] = strings.Trim(cluster[i], " ")
 	}
 	logger.Info(fmt.Sprintf("Running Node: %d at port: %s", *id, *port))
-
-	//db, err := badger.Open(badger.DefaultOptions("/tmp/badger"))
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//defer func(db *badger.DB) {
-	//	err := db.Close()
-	//	if err != nil {
-	//		log.Fatal(err)
-	//	}
-	//}(db)
-	//
-	//sayHello := func(rw http.ResponseWriter, r *http.Request) {
-	//	_, err := rw.Write([]byte("<h1>Hello</h1>"))
-	//	if err != nil {
-	//		return
-	//	}
-	//}
-	//
-	//http.HandleFunc("/", sayHello)
-	//
-	//log.Fatal(http.ListenAndServe(":"+*port, nil))
 }
