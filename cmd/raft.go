@@ -16,7 +16,6 @@ type raftFSM struct {
 }
 
 const (
-	get string = "GET"
 	set string = "SET"
 	upd string = "UPD"
 	del string = "DEL"

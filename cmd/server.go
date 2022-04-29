@@ -1,36 +1,35 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
-	"github.com/dgraph-io/badger/v3"
-	"github.com/hashicorp/raft"
-	"github.com/hashicorp/raft-boltdb/v2"
-	"go.uber.org/zap"
+	"fmt"
 	"log"
-	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/dgraph-io/badger/v3"
+	"github.com/hashicorp/raft"
+	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
+	"go.uber.org/zap"
 )
 
 type config struct {
-	port string
-	id   int32
+	id   string
 	path string
+	addr string
 }
 
 // The full server encapsulated in a struct
 type server struct {
+	cfg    *config
 	logger *zap.Logger // logger
 	raft   *raft.Raft  // the raft
 	fsm    *raftFSM    // the fsm
 	db     *badger.DB
-}
-
-func (s *server) join(id uint64, addr net.Addr) error {
-	// TODO
-	return nil
 }
 
 func (s *server) get(key uint64) (uint64, error) {
@@ -113,32 +112,46 @@ func (s *server) delete(key uint64) error {
 	_, ok := applyFuture.Response().(*ResData)
 
 	if !ok {
-		log.Fatal("Invalid Response")
+		// TODO
 	}
 	return nil
 }
 
-func newServer(config *config, logger *zap.Logger) (*server, error) {
+func (s *server) join(joinAddr, id string) error {
+	b, err := json.Marshal(map[string]string{"addr": s.cfg.addr, "id": id})
+	if err != nil {
+		return err
+	}
+	resp, err := http.Post(fmt.Sprintf("http://%s/join", joinAddr), "application-type/json", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	return nil
+}
+
+func newServer(cfg *config, logger *zap.Logger) (*server, error) {
 	db, err := badger.Open(badger.DefaultOptions("/tmp/badger"))
 	if err != nil {
 		logger.Fatal("Could not open connection to badger db", zap.Error(err))
 	}
+
 	raftConfig := raft.DefaultConfig()
-	raftConfig.LocalID = raft.ServerID(config.id)
-	addr, err := net.ResolveTCPAddr("tcp", config.port)
+	raftConfig.LocalID = raft.ServerID(cfg.id)
 
 	if err != nil {
 		return nil, err
 	}
-	snapshots, err := raft.NewFileSnapshotStore(config.path, retainSnapshotCount, os.Stderr)
+	snapshots, err := raft.NewFileSnapshotStore(cfg.path, retainSnapshotCount, os.Stderr)
 	if err != nil {
 		return nil, err
 	}
-	transport, err := raft.NewTCPTransport(config.port, addr, 3, raftTimeout, os.Stderr)
+	transport, err := raft.NewTCPTransport(cfg.addr, cfg.addr, 3, raftTimeout, os.Stderr)
 	if err != nil {
 		return nil, err
 	}
-	boltDB, err := raftboltdb.NewBoltStore(filepath.Join(config.path, "raft.db"))
+	boltDB, err := raftboltdb.NewBoltStore(filepath.Join(cfg.path, "raft.db"))
 	if err != nil {
 		return nil, err
 	}
@@ -151,6 +164,7 @@ func newServer(config *config, logger *zap.Logger) (*server, error) {
 		raft:   rf,
 		fsm:    &fsm,
 		db:     db,
+		cfg:    cfg,
 	}
 	return srv, nil
 }

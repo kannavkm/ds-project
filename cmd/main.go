@@ -3,11 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"go.uber.org/zap"
 	"log"
-	"os"
-	"strings"
+	"net"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -23,18 +23,50 @@ func main() {
 	defer logger.Sync()
 	logger.Info("Hello from zap logger")
 
-	id := flag.Int("id", 0, "Id of the cluster")
-	port := flag.String("p", "8001", "Port to listen on")
-	clusterS := flag.String("cluster", "", "Comma Separated ips of the rafts of current nodes")
+	id := flag.String("id", "", "Id of the cluster")
+	httpAddr := flag.String("haddr", ":8000", "Set the address for the HTTP server")
+	raftAddr := flag.String("raddr", ":9000", "Set the address for the Raft")
+	joinAddr := flag.String("join", "", "Set the address for the node to join")
+
 	flag.Parse()
-	if len(*port) != 4 {
-		fmt.Println("Usage server [-p] port ...")
-		flag.PrintDefaults()
-		os.Exit(1)
+
+	// haddr, err := net.ResolveTCPAddr("tcp", *httpAddr)
+	// if err != nil {
+	// 	logger.Fatal("Wrong http addr")
+	// 	return
+	// }
+
+	// raddr, err := net.ResolveTCPAddr("tcp", *raftAddr)
+	// if err != nil {
+	// 	logger.Fatal("Wrong raft addr")
+	// 	return
+	// }
+
+	cfg := config{
+		id:   *id,
+		path: "./node/" + *id,
+		addr: *raftAddr,
 	}
-	var cluster []string = strings.Split(*clusterS, ",")
-	for i := range cluster {
-		cluster[i] = strings.Trim(cluster[i], " ")
+
+	srv, err := newServer(&cfg, logger)
+	if err != nil {
+		logger.Fatal("Could not start raft server, try deleting the data directory")
+		return
 	}
-	logger.Info(fmt.Sprintf("Running Node: %d at port: %s", *id, *port))
+
+	if *joinAddr != "" {
+		join, err := net.ResolveIPAddr("ip", *joinAddr)
+		if err != nil {
+			logger.Fatal("Could not find join address")
+			return
+		}
+	}
+
+	httpsrv := &httpService{
+		addr:   *httpAddr,
+		store:  srv,
+		logger: logger,
+	}
+	httpsrv.Start()
+	logger.Info(fmt.Sprintf("Running Node: %d at addr: %s, %s", *id, *httpAddr, *raftAddr))
 }
