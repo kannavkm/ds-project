@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"time"
 
 	"go.uber.org/zap"
@@ -15,6 +18,19 @@ const (
 	raftTimeout         = 10 * time.Second
 )
 
+func join(joinAddr, myAddr, id string) error {
+	b, err := json.Marshal(map[string]string{"addr": myAddr, "id": id})
+	if err != nil {
+		return err
+	}
+	resp, err := http.Post(fmt.Sprintf("http://%s/join", joinAddr), "application-type/json", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
 func main() {
 	logger, err := zap.NewProduction()
 	if err != nil {
@@ -24,8 +40,8 @@ func main() {
 	logger.Info("Hello from zap logger")
 
 	id := flag.String("id", "", "Id of the cluster")
-	httpAddr := flag.String("haddr", ":8000", "Set the address for the HTTP server")
-	raftAddr := flag.String("raddr", ":9000", "Set the address for the Raft")
+	httpAddr := flag.String("haddr", "localhost:8000", "Set the address for the HTTP server")
+	raftAddr := flag.String("raddr", "localhost:9000", "Set the address for the Raft")
 	joinAddr := flag.String("join", "", "Set the address for the node to join")
 
 	flag.Parse()
@@ -43,9 +59,10 @@ func main() {
 	// }
 
 	cfg := config{
-		id:   *id,
-		path: "./node/" + *id,
-		addr: *raftAddr,
+		id:     *id,
+		path:   "./build/data/" + *id,
+		addr:   *raftAddr,
+		leader: *joinAddr == "",
 	}
 
 	srv, err := newServer(&cfg, logger)
@@ -55,11 +72,17 @@ func main() {
 	}
 
 	if *joinAddr != "" {
-		join, err := net.ResolveIPAddr("ip", *joinAddr)
+		// If I am not the first one then join them
+		_, err := net.ResolveTCPAddr("tcp", *joinAddr)
 		if err != nil {
 			logger.Fatal("Could not find join address")
 			return
 		}
+		err = join(*joinAddr, *raftAddr, *id)
+		if err != nil {
+			logger.Fatal("Could not join")
+		}
+		logger.Info("Able to join?")
 	}
 
 	httpsrv := &httpService{

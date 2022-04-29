@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -51,7 +52,7 @@ func (s *httpService) handleKeyPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type message struct {
-		value uint64
+		Value uint64 `json:"value"`
 	}
 	var msg message
 	err = json.Unmarshal(b, &msg)
@@ -59,7 +60,7 @@ func (s *httpService) handleKeyPut(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Could not parse Request body", 400)
 		return
 	}
-	value := msg.value
+	value := msg.Value
 	err = s.store.put(key, value)
 	if err != nil {
 		http.Error(w, "Could not put the key", 500)
@@ -93,13 +94,35 @@ func (s *httpService) handleKeyDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *httpService) handleJoin(w http.ResponseWriter, r *http.Request) {
-
+	s.logger.Info("Got join message")
+	b, err := ioutil.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		http.Error(w, "Could not open request body", 500)
+		return
+	}
+	type message struct {
+		Addr string `json:"Addr"`
+		Id   string `json:"id"`
+	}
+	var msg message
+	err = json.Unmarshal(b, &msg)
+	if err != nil {
+		s.logger.Info("Unable to unmarshal json")
+	}
+	fmt.Println(string(b))
+	err = s.store.join(msg.Addr, msg.Id)
+	if err != nil {
+		s.logger.Info("The node could not join")
+		http.Error(w, "The requesting node could not join", 500)
+		return
+	}
 }
 
 func (s *httpService) Start() {
 	s.logger.Info("Server Starting", zap.String("address", s.addr))
 	r := mux.NewRouter()
-	r.HandleFunc("/join", s.handleJoin)
+	r.HandleFunc("/join", s.handleJoin).Methods("POST")
 	r.HandleFunc("/{id:[0-9]+}", s.handleKeyGet).Methods("GET")
 	r.HandleFunc("/{id:[0-9]+}", s.handleKeyPut).Methods("PUT")
 	r.HandleFunc("/{id:[0-9]+}", s.handleKeyDelete).Methods("DELETE")

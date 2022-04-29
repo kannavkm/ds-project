@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
-	"net/http"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,9 +16,10 @@ import (
 )
 
 type config struct {
-	id   string
-	path string
-	addr string
+	id     string
+	path   string
+	addr   string
+	leader bool
 }
 
 // The full server encapsulated in a struct
@@ -38,16 +37,21 @@ func (s *server) get(key uint64) (uint64, error) {
 
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(keyS))
+		if err != nil {
+			s.logger.Info("Key not available")
+			return err
+		}
 
 		err = item.Value(func(val []byte) error {
-			valS, err = strconv.ParseUint(string(val), 10, 64)
+			//s.logger.Info("Value that I got", zap.String("vals", string(val)))
+			valCopy := append([]byte{}, val...)
+			valS, err = strconv.ParseUint(string(valCopy), 10, 64)
 			return err
 		})
 
 		return err
 	})
 	if err != nil {
-		log.Fatal(err)
 		return 0, err
 	}
 	return valS, err
@@ -56,83 +60,78 @@ func (s *server) get(key uint64) (uint64, error) {
 func (s *server) put(key, val uint64) error {
 
 	data := event{
-		opType: "SET",
-		key:    key,
-		value:  val,
+		OpType: "SET",
+		Key:    key,
+		Value:  val,
 	}
 
 	dataJson, err := json.Marshal(data)
 
 	if err != nil {
-		log.Fatal(err)
+		s.logger.Error("Could not marshal data")
 	}
 
 	applyFuture := s.raft.Apply(dataJson, 500*time.Millisecond)
 	if err := applyFuture.Error(); err != nil {
-		log.Fatal(err)
+		s.logger.Error("Could not apply put method", zap.Error(err))
 	}
 
-	type ResData struct {
-		Error error
-		Data  interface{}
-	}
-
-	_, ok := applyFuture.Response().(*ResData)
-
-	if !ok {
-		log.Fatal("Invalid Response")
-	}
 	return nil
 }
 
 func (s *server) delete(key uint64) error {
 
 	data := event{
-		opType: "SET",
-		key:    key,
-		value:  0,
+		OpType: "SET",
+		Key:    key,
+		Value:  0,
 	}
 
 	dataJson, err := json.Marshal(data)
 
 	if err != nil {
-		log.Fatal(err)
+		s.logger.Error("Could not marshal data")
 	}
 
 	applyFuture := s.raft.Apply(dataJson, 500*time.Millisecond)
 	if err := applyFuture.Error(); err != nil {
-		log.Fatal(err)
-	}
-
-	type ResData struct {
-		Error error
-		Data  interface{}
-	}
-
-	_, ok := applyFuture.Response().(*ResData)
-
-	if !ok {
-		// TODO
+		s.logger.Error("Could not apply put method", zap.Error(err))
 	}
 	return nil
 }
 
+// respond to join requests by a node at joinAddr
 func (s *server) join(joinAddr, id string) error {
-	b, err := json.Marshal(map[string]string{"addr": s.cfg.addr, "id": id})
-	if err != nil {
+	cfgFuture := s.raft.GetConfiguration()
+	if err := cfgFuture.Error(); err != nil {
+		s.logger.Fatal("failed to get raft configuration")
 		return err
 	}
-	resp, err := http.Post(fmt.Sprintf("http://%s/join", joinAddr), "application-type/json", bytes.NewReader(b))
-	if err != nil {
-		return err
+	for _, srv := range cfgFuture.Configuration().Servers {
+		if srv.ID == raft.ServerID(id) || srv.Address == raft.ServerAddress(joinAddr) {
+			if srv.ID == raft.ServerID(id) && srv.Address == raft.ServerAddress(joinAddr) {
+				return nil
+			}
+			// This would be replicated to all nodes
+			future := s.raft.RemoveServer(srv.ID, 0, 0)
+			if err := future.Error(); err != nil {
+				s.logger.Fatal("Failed to remove server")
+				return err
+			}
+		}
 	}
-	defer resp.Body.Close()
-
+	// again replicated to all nodes part of the server
+	f := s.raft.AddVoter(raft.ServerID(id), raft.ServerAddress(joinAddr), 0, 0)
+	if f.Error() != nil {
+		fmt.Println(f.Error())
+		return f.Error()
+	}
+	// must have joined successfully
 	return nil
 }
 
 func newServer(cfg *config, logger *zap.Logger) (*server, error) {
-	db, err := badger.Open(badger.DefaultOptions("/tmp/badger"))
+	db, err := badger.Open(badger.DefaultOptions(filepath.Join(cfg.path, "data")))
 	if err != nil {
 		logger.Fatal("Could not open connection to badger db", zap.Error(err))
 	}
@@ -147,7 +146,11 @@ func newServer(cfg *config, logger *zap.Logger) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
-	transport, err := raft.NewTCPTransport(cfg.addr, cfg.addr, 3, raftTimeout, os.Stderr)
+	raddr, err := net.ResolveTCPAddr("tcp", cfg.addr)
+	if err != nil {
+		return nil, err
+	}
+	transport, err := raft.NewTCPTransport(cfg.addr, raddr, 3, raftTimeout, os.Stderr)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +162,16 @@ func newServer(cfg *config, logger *zap.Logger) (*server, error) {
 	stableStore := boltDB
 	fsm := raftFSM{db: db, logger: logger}
 	rf, err := raft.NewRaft(raftConfig, &fsm, logStore, stableStore, snapshots, transport)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.leader {
+		config := raft.Configuration{Servers: []raft.Server{{
+			ID:      raft.ServerID(cfg.id),
+			Address: transport.LocalAddr(),
+		}}}
+		rf.BootstrapCluster(config)
+	}
 	srv := &server{
 		logger: logger,
 		raft:   rf,

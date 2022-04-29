@@ -1,4 +1,4 @@
-module github.com/srk/graphd
+module example.com/graphd
 
 go 1.17
 

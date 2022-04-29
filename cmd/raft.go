@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/binary"
 	"encoding/json"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/hashicorp/raft"
 	"go.uber.org/zap"
 	"io"
+	"strconv"
 )
 
 // FSM is implemented by clients to make use of the replicated log.
@@ -22,21 +22,19 @@ const (
 )
 
 type event struct {
-	opType string
-	key    uint64
-	value  uint64
+	OpType string `json:"opType"`
+	Key    uint64 `json:"key"`
+	Value  uint64 `json:"value"`
 }
 
-func (e *event) Key() []byte {
-	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, e.key)
-	return b
+func (e *event) key() []byte {
+	keyS := strconv.FormatUint(e.Key, 10)
+	return []byte(keyS)
 }
 
-func (e *event) Value() []byte {
-	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, e.value)
-	return b
+func (e *event) value() []byte {
+	keyS := strconv.FormatUint(e.Value, 10)
+	return []byte(keyS)
 }
 
 // Apply is called once a log entry is committed by a majority of the cluster.
@@ -50,11 +48,11 @@ func (f *raftFSM) Apply(log *raft.Log) interface{} {
 	if err := json.Unmarshal(log.Data, &e); err != nil {
 		f.logger.Fatal("Failed unmarshalling Log entry, this is a bug")
 	}
-	switch e.opType {
+	switch e.OpType {
 	case set, upd:
 		err := f.db.Update(func(txn *badger.Txn) error {
 			// TODO handle conflict here
-			err := txn.Set(e.Key(), e.Value())
+			err := txn.Set(e.key(), e.value())
 			return err
 		})
 		if err != nil {
@@ -63,7 +61,7 @@ func (f *raftFSM) Apply(log *raft.Log) interface{} {
 		// should read only operations go through raft?
 	case del:
 		err := f.db.Update(func(txn *badger.Txn) error {
-			err := txn.Delete(e.Key())
+			err := txn.Delete(e.key())
 			return err
 		})
 		if err != nil {
