@@ -62,7 +62,7 @@ func main() {
 	}
 	defer con.Close()
 	c := pb.NewZeroClient(con)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	cfg := config{

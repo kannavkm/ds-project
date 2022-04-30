@@ -1,6 +1,11 @@
 PACKAGE=example.com/graphd
+BIN=build/bin/
 
-.PHONY: server
+all: zero alpha
 
-server:
-	go build -o build/bin/server ${PACKAGE}/cmd
+zero:
+	go build -o ${BIN}/zero ${PACKAGE}/cmd/zero
+
+alpha:
+	go build -o ${BIN}/alpha ${PACKAGE}/cmd/alpha
+

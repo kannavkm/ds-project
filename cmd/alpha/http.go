@@ -3,14 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
+	"go.uber.org/zap"
 	"io/ioutil"
 	"log"
 	"net/http"
-
-	// "strconv"
-
-	"github.com/gorilla/mux"
-	"go.uber.org/zap"
 )
 
 type httpService struct {

@@ -8,6 +8,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/dgraph-io/badger/v3 v3.2103.2
 	github.com/gorilla/mux v1.8.0
+	github.com/hashicorp/go-uuid v1.0.0
 	github.com/hashicorp/raft v1.3.6
 	github.com/hashicorp/raft-boltdb/v2 v2.2.2
 	go.uber.org/zap v1.21.0

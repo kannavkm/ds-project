@@ -100,7 +100,7 @@ func (g *ZeroServer) JoinAGroup(ctx context.Context, node *pb.Node) (*pb.Group, 
 		}
 		defer txn.Rollback()
 		minMemberGroup := ""
-		minMembers := math.MaxUint64
+		minMembers := math.MaxUint32
 		err = txn.Bucket(memberNum).ForEach(func(k, v []byte) error {
 			groupid := string(k)
 			num, err := strconv.ParseInt(string(v), 10, 64)
@@ -109,12 +109,14 @@ func (g *ZeroServer) JoinAGroup(ctx context.Context, node *pb.Node) (*pb.Group, 
 			}
 			if int(num) < minMembers {
 				minMemberGroup = groupid
+				minMembers = int(num)
 			}
 			return nil
 		})
 		txn.Commit()
 		return minMemberGroup, err
 	}()
+	g.logger.Info("Group selected finally", zap.String("name", minMemberGroup))
 	if err != nil {
 		g.logger.Error("Could not find minimum member group", zap.Error(err))
 		return nil, err
