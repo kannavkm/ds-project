@@ -1,9 +1,9 @@
 syntax = "proto3";
 
-package serverGrpc;
-option go_package = "./serverGrpc";
+package zeroGrpc;
+option go_package = "./zeroGrpc";
 
-service Server {
+service Zero {
   rpc JoinAGroup(Node) returns (Group);
   rpc CreateAGroup(Node) returns (Group);
   rpc UpdateLeader(Node) returns (Group);
@@ -14,6 +14,7 @@ message Group {
   string id = 1;
   string leader_raft_address = 2;
   string leader_http_address = 3;
+  int32 members = 4;
 }
 
 message Node {

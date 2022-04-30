@@ -2,7 +2,7 @@ package main
 
 // each node is participant of 1 group
 // this is saying that each group can have multiple disjoint workers
-// Each group is replicated over 3 worker nodes
+// Each group is replicated over 3 alpha nodes
 //
 // for each group it is part
 
@@ -10,7 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	pb "example.com/graphd/cmd/server/server_grpc"
+	pb "example.com/graphd/cmd/zero/grpc"
 	"flag"
 	"fmt"
 	"go.uber.org/zap"
@@ -61,7 +61,7 @@ func main() {
 		logger.Error("Could not connect to Master", zap.Error(err))
 	}
 	defer con.Close()
-	c := pb.NewServerClient(con)
+	c := pb.NewZeroClient(con)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -128,6 +128,6 @@ func main() {
 		store:  srv,
 		logger: logger,
 	}
-	httpsrv.Start()
 	logger.Info(fmt.Sprintf("Running Node: %d at addr: %s, %s", *id, *httpAddr, *raftAddr))
+	httpsrv.Start()
 }

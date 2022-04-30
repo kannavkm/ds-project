@@ -34,6 +34,35 @@ type consistentHashHandler struct {
 	db *bolt.DB
 }
 
+func newConsistentHashHandler(db *bolt.DB) (*consistentHashHandler, error) {
+	cfg := consistent.Config{
+		// groups are the members of the ring
+		// each key can map to
+		PartitionCount:    271,
+		ReplicationFactor: 20,
+		Load:              1.25,
+		Hasher:            hasher{},
+	}
+
+	c := consistent.New(nil, cfg)
+	tx, err := db.Begin(true)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Create all the buckets
+	if _, err := tx.CreateBucketIfNotExists(groups); err != nil {
+		return nil, err
+	}
+	tx.Commit()
+
+	return &consistentHashHandler{
+		c:  c,
+		db: db,
+	}, nil
+}
+
 func (ch *consistentHashHandler) addGroup(id string) error {
 	ch.c.Add(group(id))
 	txn, err := ch.db.Begin(true)

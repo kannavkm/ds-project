@@ -2,11 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"io"
+
 	"github.com/dgraph-io/badger/v3"
 	"github.com/hashicorp/raft"
 	"go.uber.org/zap"
-	"io"
-	"strconv"
+	// "strconv"
 )
 
 // FSM is implemented by clients to make use of the replicated log.
@@ -22,19 +23,25 @@ const (
 )
 
 type event struct {
-	OpType string `json:"opType"`
-	Key    uint64 `json:"key"`
-	Value  uint64 `json:"value"`
+	OpType   string   `json:"opType"`
+	Key      string   `json:"key"`
+	Relation string   `json:"relation"`
+	Value    []string `json:"value"`
 }
 
 func (e *event) key() []byte {
-	keyS := strconv.FormatUint(e.Key, 10)
-	return []byte(keyS)
+	// keyS := strconv.FormatUint(e.Key, 10)
+	return []byte(e.Key)
 }
 
 func (e *event) value() []byte {
-	keyS := strconv.FormatUint(e.Value, 10)
-	return []byte(keyS)
+	// keyS := strconv.FormatUint(e.Value, 10)
+	// var val []string
+	// _ = json.Unmarshal(e.Value, &val)
+	// return json.um
+	// return []byte(e.Value)
+	val, _ := json.Marshal(e.Value)
+	return val
 }
 
 // Apply is called once a log entry is committed by a majority of the cluster.
