@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package serverGrpc;
+option go_package = "./serverGrpc";
+
+service Server {
+  rpc JoinAGroup(Node) returns (Group);
+  rpc CreateAGroup(Node) returns (Group);
+  rpc UpdateLeader(Node) returns (Group);
+  rpc GetLeader(Group) returns (Node);
+}
+
+message Group {
+  string id = 1;
+  string leader_raft_address = 2;
+  string leader_http_address = 3;
+}
+
+message Node {
+  string id = 1;
+  string group_id = 2;
+  string raft_address = 3;
+  string http_address = 4;
+}
+
