@@ -31,10 +31,11 @@ type ZeroServer struct {
 	db     *bolt.DB
 	Server *grpc.Server
 	logger *zap.Logger
+	c      *consistentHashHandler
 	pb.UnimplementedZeroServer
 }
 
-func newZeroServer(db *bolt.DB, logger *zap.Logger) (*ZeroServer, error) {
+func newZeroServer(db *bolt.DB, logger *zap.Logger, ch *consistentHashHandler) (*ZeroServer, error) {
 	tx, err := db.Begin(true)
 	if err != nil {
 		return nil, err
@@ -56,6 +57,7 @@ func newZeroServer(db *bolt.DB, logger *zap.Logger) (*ZeroServer, error) {
 		db:     db,
 		Server: grpc.NewServer(),
 		logger: logger,
+		c:      ch,
 	}, nil
 }
 
@@ -83,6 +85,10 @@ func (g *ZeroServer) CreateAGroup(ctx context.Context, node *pb.Node) (*pb.Group
 		return nil, err
 	}
 	txn.Commit()
+	err = g.c.addGroup(uid)
+	if err != nil {
+		return nil, err
+	}
 	return &pb.Group{
 		Id:                uid,
 		LeaderRaftAddress: node.GetRaftAddress(),
@@ -149,6 +155,7 @@ func (g *ZeroServer) JoinAGroup(ctx context.Context, node *pb.Node) (*pb.Group, 
 		return nil, err
 	}
 	txn.Commit()
+
 	return &pb.Group{
 		Id:                minMemberGroup,
 		LeaderRaftAddress: leaderRaft,

@@ -39,7 +39,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error in starting Zero GRPC Listener: %v\n", err)
 	}
-	zeroServer, err := newZeroServer(handle, logger)
+	zeroServer, err := newZeroServer(handle, logger, ch)
 	pb.RegisterZeroServer(zeroServer.Server, zeroServer)
 	httpSrv := &httpService{
 		addr:   *httpAddr,
