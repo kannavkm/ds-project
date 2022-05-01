@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package zeroGrpc;
+option go_package = "./zeroGrpc";
+
+service Zero {
+  rpc JoinAGroup(Node) returns (Group);
+  rpc CreateAGroup(Node) returns (Group);
+  rpc UpdateLeader(Node) returns (Group);
+  rpc GetLeader(Group) returns (Node);
+}
+
+message Group {
+  string id = 1;
+  string leader_raft_address = 2;
+  string leader_http_address = 3;
+  int32 members = 4;
+}
+
+message Node {
+  string id = 1;
+  string group_id = 2;
+  string raft_address = 3;
+  string http_address = 4;
+}
+

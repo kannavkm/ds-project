@@ -1,3 +1,4 @@
 #!/bin/bash
 
-../build/bin/server 
+make server
+./build/bin/server
