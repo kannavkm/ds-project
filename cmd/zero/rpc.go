@@ -3,23 +3,15 @@ package main
 import (
 	"context"
 	pb "example.com/graphd/cmd/zero/grpc"
-	"github.com/boltdb/bolt"
 	"github.com/hashicorp/go-uuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"math"
-	"strconv"
-)
-
-var (
-	leaderHTTPAddress = []byte("LeaderHTTPAddress")
-	leaderRaftAddress = []byte("LeaderRaftAddress")
-	memberNum         = []byte("MembersNumber")
+	"sync"
 )
 
 // zero accepts rpc responses from the multiple alpha nodes
 // and Also sends rpc requests to appropriate alpha nodes
-
 type groupInfo struct {
 	leader  *pb.Node
 	members int
@@ -28,67 +20,47 @@ type groupInfo struct {
 // ZeroServer this handles the grpc request to the zero
 // this might need to be exported
 type ZeroServer struct {
-	db     *bolt.DB
+	mut    sync.Mutex
+	gInfo  map[string]*groupInfo
+	nInfo  map[string]*pb.Node
 	Server *grpc.Server
 	logger *zap.Logger
 	c      *consistentHashHandler
 	pb.UnimplementedZeroServer
 }
 
-func newZeroServer(db *bolt.DB, logger *zap.Logger, ch *consistentHashHandler) (*ZeroServer, error) {
-	tx, err := db.Begin(true)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	// Create all the buckets
-	if _, err := tx.CreateBucketIfNotExists(leaderHTTPAddress); err != nil {
-		return nil, err
-	}
-	if _, err := tx.CreateBucketIfNotExists(leaderRaftAddress); err != nil {
-		return nil, err
-	}
-	// Create all the buckets
-	if _, err := tx.CreateBucketIfNotExists(memberNum); err != nil {
-		return nil, err
-	}
-	tx.Commit()
+func newZeroServer(logger *zap.Logger, ch *consistentHashHandler) (*ZeroServer, error) {
 	return &ZeroServer{
-		db:     db,
+		gInfo:  make(map[string]*groupInfo),
+		nInfo:  make(map[string]*pb.Node),
 		Server: grpc.NewServer(),
 		logger: logger,
 		c:      ch,
 	}, nil
 }
 
-func (g *ZeroServer) CreateAGroup(ctx context.Context, node *pb.Node) (*pb.Group, error) {
-	g.logger.Info("node asking to create a group")
-	txn, err := g.db.Begin(true)
-	if err != nil {
-		return nil, err
+func (z *ZeroServer) CreateAGroup(ctx context.Context, node *pb.Node) (*pb.Group, error) {
+	z.logger.Info("node asking to create a group")
+	group := groupInfo{
+		leader:  node,
+		members: 1,
 	}
-	defer txn.Rollback()
 	uid, err := uuid.GenerateUUID()
 	if err != nil {
 		return nil, err
 	}
-	bucket := txn.Bucket(leaderHTTPAddress)
-	if err := bucket.Put([]byte(uid), []byte(node.GetHttpAddress())); err != nil {
-		return nil, err
-	}
-	bucket = txn.Bucket(leaderRaftAddress)
-	if err := bucket.Put([]byte(uid), []byte(node.GetRaftAddress())); err != nil {
-		return nil, err
-	}
-	bucket = txn.Bucket(memberNum)
-	if err := bucket.Put([]byte(uid), []byte(strconv.FormatInt(1, 10))); err != nil {
-		return nil, err
-	}
-	txn.Commit()
-	err = g.c.addGroup(uid)
+
+	z.mut.Lock()
+	defer z.mut.Unlock()
+	err = z.c.addGroup(uid)
 	if err != nil {
 		return nil, err
 	}
+
+	node.GroupId = uid
+	z.nInfo[node.GetId()] = node
+	z.gInfo[uid] = &group
+
 	return &pb.Group{
 		Id:                uid,
 		LeaderRaftAddress: node.GetRaftAddress(),
@@ -97,97 +69,61 @@ func (g *ZeroServer) CreateAGroup(ctx context.Context, node *pb.Node) (*pb.Group
 	}, nil
 }
 
-func (g *ZeroServer) JoinAGroup(ctx context.Context, node *pb.Node) (*pb.Group, error) {
-	g.logger.Info("node asking to join a group")
-	minMemberGroup, err := func() (string, error) {
-		txn, err := g.db.Begin(false)
-		if err != nil {
-			return "", err
+func (z *ZeroServer) JoinAGroup(ctx context.Context, node *pb.Node) (*pb.Group, error) {
+	z.logger.Info("node asking to join a group")
+	// if we already know about this group then
+	z.mut.Lock()
+	defer z.mut.Unlock()
+	if memNode, ok := z.nInfo[node.GetId()]; ok {
+		ginfo := z.gInfo[memNode.GetGroupId()]
+		leader := ginfo.leader
+		return &pb.Group{
+			Id:                memNode.GetGroupId(),
+			LeaderRaftAddress: leader.GetRaftAddress(),
+			LeaderHttpAddress: leader.GetHttpAddress(),
+			Members:           int32(ginfo.members), // this would not change
+			// else we do not know about this guy
+		}, nil
+	}
+	minMemberGroup := ""
+	minMembers := math.MaxUint32
+	for k, v := range z.gInfo {
+		if int(v.members) < minMembers {
+			minMemberGroup = k
+			minMembers = int(v.members)
 		}
-		defer txn.Rollback()
-		minMemberGroup := ""
-		minMembers := math.MaxUint32
-		err = txn.Bucket(memberNum).ForEach(func(k, v []byte) error {
-			groupid := string(k)
-			num, err := strconv.ParseInt(string(v), 10, 64)
-			if err != nil {
-				return err
-			}
-			if int(num) < minMembers {
-				minMemberGroup = groupid
-				minMembers = int(num)
-			}
-			return nil
-		})
-		txn.Commit()
-		return minMemberGroup, err
-	}()
-	g.logger.Info("Group selected finally", zap.String("name", minMemberGroup))
-	if err != nil {
-		g.logger.Error("Could not find minimum member group", zap.Error(err))
-		return nil, err
 	}
-	txn, err := g.db.Begin(true)
-	if err != nil {
-		return nil, err
+
+	z.logger.Info("Group selected finally", zap.String("name", minMemberGroup))
+	if minMemberGroup == "" {
+		z.logger.Error("Could not find minimum member group")
+		return nil, nil
 	}
-	defer txn.Rollback()
-	bucket := txn.Bucket(leaderHTTPAddress)
-	if err != nil {
-		return nil, err
+	if entry, ok := z.gInfo[minMemberGroup]; ok {
+		entry.members += 1
+		node.GroupId = minMemberGroup
+		z.nInfo[node.GetId()] = node
 	}
-	leaderHTTP := string(bucket.Get([]byte(minMemberGroup)))
-	bucket = txn.Bucket(leaderRaftAddress)
-	if err != nil {
-		return nil, err
-	}
-	leaderRaft := string(bucket.Get([]byte(minMemberGroup)))
-	bucket = txn.Bucket(memberNum)
-	if err != nil {
-		return nil, err
-	}
-	members := bucket.Get([]byte(minMemberGroup))
-	memN, err := strconv.ParseInt(string(members), 10, 64)
-	if err != nil {
-		return nil, err
-	}
-	if err := bucket.Put([]byte(minMemberGroup), []byte(strconv.FormatInt(memN+1, 10))); err != nil {
-		return nil, err
-	}
-	txn.Commit()
 
 	return &pb.Group{
 		Id:                minMemberGroup,
-		LeaderRaftAddress: leaderRaft,
-		LeaderHttpAddress: leaderHTTP,
-		Members:           int32(memN + 1),
+		LeaderRaftAddress: z.gInfo[minMemberGroup].leader.GetRaftAddress(),
+		LeaderHttpAddress: z.gInfo[minMemberGroup].leader.GetRaftAddress(),
+		Members:           int32(z.gInfo[minMemberGroup].members),
 	}, nil
 }
 
-func (g *ZeroServer) UpdateLeader(ctx context.Context, node *pb.Node) (*pb.Group, error) {
-	g.logger.Info("node asking to update leader of group")
-	txn, err := g.db.Begin(true)
-	if err != nil {
-		return nil, err
+func (z *ZeroServer) UpdateLeader(ctx context.Context, node *pb.Node) (*pb.Group, error) {
+	z.logger.Info("node asking to update leader of group")
+	// update leader
+	z.mut.Lock()
+	defer z.mut.Unlock()
+	var memN int
+	if entry, ok := z.gInfo[node.GetGroupId()]; ok {
+		z.nInfo[node.GetId()] = node
+		entry.leader = node
+		memN = entry.members
 	}
-	defer txn.Rollback()
-	bucket := txn.Bucket(leaderHTTPAddress)
-	if err != nil {
-		return nil, err
-	}
-	if err := bucket.Put([]byte(node.GetGroupId()), []byte(node.GetHttpAddress())); err != nil {
-		return nil, err
-	}
-	bucket = txn.Bucket(leaderRaftAddress)
-	if err != nil {
-		return nil, err
-	}
-	if err := bucket.Put([]byte(node.GetGroupId()), []byte(node.GetRaftAddress())); err != nil {
-		return nil, err
-	}
-	members := bucket.Get([]byte(node.GetGroupId()))
-	memN, err := strconv.ParseInt(string(members), 10, 64)
-	txn.Commit()
 	return &pb.Group{
 		Id:                node.GetGroupId(),
 		LeaderRaftAddress: node.GetRaftAddress(),
@@ -196,28 +132,17 @@ func (g *ZeroServer) UpdateLeader(ctx context.Context, node *pb.Node) (*pb.Group
 	}, nil
 }
 
-func (g *ZeroServer) GetGroupInfo(id string) (*pb.Group, error) {
-	txn, err := g.db.Begin(false)
-	if err != nil {
-		return nil, err
+func (z *ZeroServer) GetGroupInfo(id string) (*pb.Group, error) {
+
+	z.mut.Lock()
+	defer z.mut.Unlock()
+	var memN int
+	var leaderHTTP, leaderRaft string
+	if entry, ok := z.gInfo[id]; ok {
+		leaderHTTP = entry.leader.GetHttpAddress()
+		leaderRaft = entry.leader.GetRaftAddress()
+		memN = entry.members
 	}
-	defer txn.Rollback()
-	bucket := txn.Bucket(leaderHTTPAddress)
-	if err != nil {
-		return nil, err
-	}
-	leaderHTTP := string(bucket.Get([]byte(id)))
-	bucket = txn.Bucket(leaderRaftAddress)
-	if err != nil {
-		return nil, err
-	}
-	leaderRaft := string(bucket.Get([]byte(id)))
-	bucket = txn.Bucket(memberNum)
-	if err != nil {
-		return nil, err
-	}
-	members := bucket.Get([]byte(id))
-	memN, err := strconv.ParseInt(string(members), 10, 64)
 	return &pb.Group{
 		Id:                id,
 		LeaderRaftAddress: leaderRaft,
@@ -226,7 +151,7 @@ func (g *ZeroServer) GetGroupInfo(id string) (*pb.Group, error) {
 	}, nil
 }
 
-func (g *ZeroServer) GetLeader(context.Context, *pb.Group) (*pb.Node, error) {
-	g.logger.Info("node asking to fetch the leader of a group")
+func (z *ZeroServer) GetLeader(context.Context, *pb.Group) (*pb.Node, error) {
+	z.logger.Info("node asking to fetch the leader of a group")
 	return nil, nil
 }
