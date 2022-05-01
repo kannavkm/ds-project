@@ -62,8 +62,6 @@ func main() {
 	}
 	defer con.Close()
 	c := pb.NewZeroClient(con)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	cfg := config{
 		id:     *id,
@@ -86,6 +84,8 @@ func main() {
 	}
 
 	if *isLeader {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		r, err := c.CreateAGroup(ctx, &node)
 		if err != nil {
 			logger.Fatal("Could not contact master, try restarting")
@@ -93,6 +93,8 @@ func main() {
 		}
 		node.GroupId = r.GetId()
 	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		r, err := c.JoinAGroup(ctx, &node)
 		if err != nil {
 			logger.Fatal("Could not contact master, try restarting")
@@ -106,6 +108,7 @@ func main() {
 			logger.Fatal("Could not find join address")
 			return
 		}
+		fmt.Println(joinAddr)
 		err = join(joinAddr, *raftAddr, *id)
 		if err != nil {
 			logger.Fatal("Could not join")
@@ -116,6 +119,8 @@ func main() {
 		leaderChange := <-srv.raft.LeaderCh()
 		log.Println("Sending leader change req")
 		if leaderChange {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 			_, err := c.UpdateLeader(ctx, &node)
 			if err != nil {
 				log.Fatal(err)

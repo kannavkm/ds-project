@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 	"log"
@@ -27,7 +26,6 @@ func (s *httpService) handleKeyOps(w http.ResponseWriter, r *http.Request) {
 	predicate := key + SEPARATOR + relation
 	mem := s.c.c.LocateKey([]byte(predicate))
 	grp, err := s.server.GetGroupInfo(mem.String())
-	fmt.Println("Here")
 	if err != nil {
 		http.Error(w, "Could not get the keyinfo", 500)
 		return

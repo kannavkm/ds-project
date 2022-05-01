@@ -93,7 +93,6 @@ func (z *ZeroServer) JoinAGroup(ctx context.Context, node *pb.Node) (*pb.Group, 
 			minMembers = int(v.members)
 		}
 	}
-
 	z.logger.Info("Group selected finally", zap.String("name", minMemberGroup))
 	if minMemberGroup == "" {
 		z.logger.Error("Could not find minimum member group")
@@ -108,7 +107,7 @@ func (z *ZeroServer) JoinAGroup(ctx context.Context, node *pb.Node) (*pb.Group, 
 	return &pb.Group{
 		Id:                minMemberGroup,
 		LeaderRaftAddress: z.gInfo[minMemberGroup].leader.GetRaftAddress(),
-		LeaderHttpAddress: z.gInfo[minMemberGroup].leader.GetRaftAddress(),
+		LeaderHttpAddress: z.gInfo[minMemberGroup].leader.GetHttpAddress(),
 		Members:           int32(z.gInfo[minMemberGroup].members),
 	}, nil
 }

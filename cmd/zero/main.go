@@ -32,14 +32,14 @@ func main() {
 		logger.Fatal("Could not open connection to bolt storage")
 		return
 	}
-
+	defer handle.Close()
 	ch, err := newConsistentHashHandler(handle)
 
 	listener, err := net.Listen("tcp", *grpcAddr)
 	if err != nil {
 		log.Fatalf("Error in starting Zero GRPC Listener: %v\n", err)
 	}
-	zeroServer, err := newZeroServer(handle, logger, ch)
+	zeroServer, err := newZeroServer(logger, ch)
 	pb.RegisterZeroServer(zeroServer.Server, zeroServer)
 	httpSrv := &httpService{
 		addr:   *httpAddr,
